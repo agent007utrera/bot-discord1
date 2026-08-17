@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Juego de Habitación Interactiva</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #1a1a1a;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin: 0;
+      padding: 20px;
+    }
+
+    /* Escenario de la habitación */
+    #escenario {
+      position: relative;
+      width: 700px;
+      height: 450px;
+      background: #333 url('https://picsum.photos/id/1018/700/450') no-repeat center/cover;
+      border: 4px solid #fff;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    /* Objetos interactivos en el suelo */
+    .objeto-suelo {
+      position: absolute;
+      padding: 8px 12px;
+      background-color: rgba(255, 204, 0, 0.9);
+      color: #000;
+      font-weight: bold;
+      border-radius: 5px;
+      cursor: pointer;
+      user-select: none;
+      transition: transform 0.1s ease;
+    }
+    .objeto-suelo:hover {
+      transform: scale(1.1);
+    }
+
+    /* Coordenadas fijas para cada objeto dentro de la habitación */
+    #obj_llave { top: 300px; left: 150px; }
+    #obj_antorcha { top: 120px; left: 500px; }
+    #obj_pocion { top: 250px; left: 380px; }
+
+    /* Panel de Inventario */
+    #panel-inventario {
+      width: 700px;
+      margin-top: 20px;
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 8px;
+      box-sizing: border-box;
+    }
+
+    .lista-items {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .item-card {
+      background: #444;
+      padding: 10px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .item-card button {
+      background: #ff4444;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      border-radius: 3px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>Habitación Multijugador en Tiempo Real</h1>
+  
+  <div id="escenario">
+    <!-- Objetos que aparecen en la imagen de la habitación -->
+    <div id="obj_llave" class="objeto-suelo" onclick="recogerObjeto('llave')">🔑 Llave</div>
+    <div id="obj_antorcha" class="objeto-suelo" onclick="recogerObjeto('antorcha')">🔦 Antorcha</div>
+    <div id="obj_pocion" class="objeto-suelo" onclick="recogerObjeto('pocion')">🧪 Poción</div>
+  </div>
+
+  <div id="panel-inventario">
+    <h3>Mi Inventario (<span id="mi-id-display"></span>)</h3>
+    <div id="contenedor-inventario" class="lista-items">
+      <p style="color: #aaa;">Tu inventario está vacío.</p>
+    </div>
+  </div>
+
+  <!-- Carga de SDK de Firebase Realtime Database -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+    // Reemplaza con la URL de tu base de datos
+    const firebaseConfig = {
+      databaseURL: "TU_DATABASE_URL_AQUI"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // Asignar un ID único a cada jugador al entrar
+    const jugadorId = "Jugador_" + Math.floor(1000 + Math.random() * 9000);
+    document.getElementById('mi-id-display').textContent = jugadorId;
+
+    // Referencia a los objetos en la base de datos
+    const estadoObjetosRef = ref(db, 'habitacion/objetos');
+
+    // 1. ESCUCHAR CAMBIOS EN TIEMPO REAL
+    // Cada vez que un jugador coge o tira un objeto, este bloque se ejecuta solo en TODOS los ordenadores conectados
+    onValue(estadoObjetosRef, (snapshot) => {
+      const datos = snapshot.val() || {};
+      
+      const listaObjetos = ['llave', 'antorcha', 'pocion'];
+      const misItems = [];
+
+      listaObjetos.forEach(item => {
+        const elementoDOM = document.getElementById('obj_' + item);
+        const infoItem = datos[item];
+
+        if (infoItem && infoItem.enSuelo === false) {
+          // Si alguien ya lo cogió, se oculta del escenario para todos
+          elementoDOM.style.display = 'none';
+
+          // Si el dueño registrado soy yo, se añade a mi inventario visual
+          if (infoItem.dueno === jugadorId) {
+            misItems.push(item);
+          }
+        } else {
+          // Si está en el suelo, se muestra visible para todos
+          elementoDOM.style.display = 'block';
+        }
+      });
+
+      actualizarInventarioUI(misItems);
+    });
+
+    // 2. FUNCIÓN PARA RECOGER OBJETOS DESDE EL ESCENARIO
+    window.recogerObjeto = function(nombreItem) {
+      set(ref(db, 'habitacion/objetos/' + nombreItem), {
+        enSuelo: false,
+        dueno: jugadorId
+      });
+    };
+
+    // 3. FUNCIÓN PARA SOLTAR OBJETOS DE VUELTA AL SUELO
+    window.soltarObjeto = function(nombreItem) {
+      set(ref(db, 'habitacion/objetos/' + nombreItem), {
+        enSuelo: true,
+        dueno: null
+      });
+    };
+
+    // Actualiza la interfaz del inventario del jugador
+    function actualizarInventarioUI(items) {
+      const contenedor = document.getElementById('contenedor-inventario');
+      if (items.length === 0) {
+        contenedor.innerHTML = '<p style="color: #aaa;">Tu inventario está vacío.</p>';
+        return;
+      }
+
+      contenedor.innerHTML = '';
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'item-card';
+        card.innerHTML = `
+          <span><b>${item.toUpperCase()}</b></span>
+          <button onclick="soltarObjeto('${item}')">Tirar al suelo</button>
+        `;
+        contenedor.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
