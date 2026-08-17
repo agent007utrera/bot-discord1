@@ -1,0 +1,15 @@
+{
+  "name": "bot-discord",
+  "version": "1.0.0",
+  "description": "Bot de Discord con inventario y suelo",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "sqlite": "^5.1.1",
+    "sqlite3": "^5.1.7"
+  }
+}
