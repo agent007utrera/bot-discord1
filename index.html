@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Juego de Habitación Interactiva</title>
+  <title>Habitación Interactiva</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -16,7 +16,6 @@
       padding: 20px;
     }
 
-    /* Escenario de la habitación */
     #escenario {
       position: relative;
       width: 700px;
@@ -27,7 +26,6 @@
       overflow: hidden;
     }
 
-    /* Objetos interactivos en el suelo */
     .objeto-suelo {
       position: absolute;
       padding: 8px 12px;
@@ -43,12 +41,10 @@
       transform: scale(1.1);
     }
 
-    /* Coordenadas fijas para cada objeto dentro de la habitación */
     #obj_llave { top: 300px; left: 150px; }
     #obj_antorcha { top: 120px; left: 500px; }
     #obj_pocion { top: 250px; left: 380px; }
 
-    /* Panel de Inventario */
     #panel-inventario {
       width: 700px;
       margin-top: 20px;
@@ -62,6 +58,7 @@
       display: flex;
       gap: 10px;
       margin-top: 10px;
+      flex-wrap: wrap;
     }
 
     .item-card {
@@ -81,14 +78,16 @@
       border-radius: 3px;
       cursor: pointer;
     }
+    .item-card button:hover {
+      background: #cc0000;
+    }
   </style>
 </head>
 <body>
 
-  <h1>Habitación Multijugador en Tiempo Real</h1>
+  <h1>Habitación Multijugador</h1>
   
   <div id="escenario">
-    <!-- Objetos que aparecen en la imagen de la habitación -->
     <div id="obj_llave" class="objeto-suelo" onclick="recogerObjeto('llave')">🔑 Llave</div>
     <div id="obj_antorcha" class="objeto-suelo" onclick="recogerObjeto('antorcha')">🔦 Antorcha</div>
     <div id="obj_pocion" class="objeto-suelo" onclick="recogerObjeto('pocion')">🧪 Poción</div>
@@ -101,72 +100,67 @@
     </div>
   </div>
 
-  <!-- Carga de SDK de Firebase Realtime Database -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-    import { getDatabase, ref, onValue, set } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
-
-    // Reemplaza con la URL de tu base de datos
-    const firebaseConfig = {
-      databaseURL: "TU_DATABASE_URL_AQUI"
-    };
-
-    const app = initializeApp(firebaseConfig);
-    const db = getDatabase(app);
-
-    // Asignar un ID único a cada jugador al entrar
+  <script>
     const jugadorId = "Jugador_" + Math.floor(1000 + Math.random() * 9000);
     document.getElementById('mi-id-display').textContent = jugadorId;
 
-    // Referencia a los objetos en la base de datos
-    const estadoObjetosRef = ref(db, 'habitacion/objetos');
+    // Canal de comunicación en tiempo real entre ventanas/pestañas
+    const canalSincronizacion = new BroadcastChannel('habitacion_game_channel');
 
-    // 1. ESCUCHAR CAMBIOS EN TIEMPO REAL
-    // Cada vez que un jugador coge o tira un objeto, este bloque se ejecuta solo en TODOS los ordenadores conectados
-    onValue(estadoObjetosRef, (snapshot) => {
-      const datos = snapshot.val() || {};
-      
+    // Estado inicial de la sala
+    let estadoObjetos = JSON.parse(localStorage.getItem('habitacion_objetos')) || {
+      llave: { enSuelo: true, dueno: null },
+      antorcha: { enSuelo: true, dueno: null },
+      pocion: { enSuelo: true, dueno: null }
+    };
+
+    function guardarYNotificar() {
+      localStorage.setItem('habitacion_objetos', JSON.stringify(estadoObjetos));
+      canalSincronizacion.postMessage(estadoObjetos);
+      renderizarEscenario();
+    }
+
+    function renderizarEscenario() {
       const listaObjetos = ['llave', 'antorcha', 'pocion'];
       const misItems = [];
 
       listaObjetos.forEach(item => {
         const elementoDOM = document.getElementById('obj_' + item);
-        const infoItem = datos[item];
+        const infoItem = estadoObjetos[item];
 
-        if (infoItem && infoItem.enSuelo === false) {
-          // Si alguien ya lo cogió, se oculta del escenario para todos
+        if (infoItem && !infoItem.enSuelo) {
           elementoDOM.style.display = 'none';
-
-          // Si el dueño registrado soy yo, se añade a mi inventario visual
           if (infoItem.dueno === jugadorId) {
             misItems.push(item);
           }
         } else {
-          // Si está en el suelo, se muestra visible para todos
           elementoDOM.style.display = 'block';
         }
       });
 
       actualizarInventarioUI(misItems);
-    });
+    }
 
-    // 2. FUNCIÓN PARA RECOGER OBJETOS DESDE EL ESCENARIO
-    window.recogerObjeto = function(nombreItem) {
-      set(ref(db, 'habitacion/objetos/' + nombreItem), {
-        enSuelo: false,
-        dueno: jugadorId
-      });
-    };
+    function recogerObjeto(nombreItem) {
+      if (estadoObjetos[nombreItem] && estadoObjetos[nombreItem].enSuelo) {
+        estadoObjetos[nombreItem] = {
+          enSuelo: false,
+          dueno: jugadorId
+        };
+        guardarYNotificar();
+      }
+    }
 
-    // 3. FUNCIÓN PARA SOLTAR OBJETOS DE VUELTA AL SUELO
-    window.soltarObjeto = function(nombreItem) {
-      set(ref(db, 'habitacion/objetos/' + nombreItem), {
-        enSuelo: true,
-        dueno: null
-      });
-    };
+    function soltarObjeto(nombreItem) {
+      if (estadoObjetos[nombreItem] && estadoObjetos[nombreItem].dueno === jugadorId) {
+        estadoObjetos[nombreItem] = {
+          enSuelo: true,
+          dueno: null
+        };
+        guardarYNotificar();
+      }
+    }
 
-    // Actualiza la interfaz del inventario del jugador
     function actualizarInventarioUI(items) {
       const contenedor = document.getElementById('contenedor-inventario');
       if (items.length === 0) {
@@ -185,6 +179,15 @@
         contenedor.appendChild(card);
       });
     }
+
+    // Escuchar actualizaciones enviadas por otras ventanas/pestañas
+    canalSincronizacion.onmessage = (event) => {
+      estadoObjetos = event.data;
+      renderizarEscenario();
+    };
+
+    // Renderizado inicial al cargar la página
+    renderizarEscenario();
   </script>
 </body>
 </html>
